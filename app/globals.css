@@ -24,3 +24,14 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* BRAND LOGO STYLES */
+.logo-buy {
+  color: var(--logo-blue);
+  font-weight: 900;
+}
+
+.logo-fest {
+  color: var(--logo-orange);
+  font-weight: 900;
+}
