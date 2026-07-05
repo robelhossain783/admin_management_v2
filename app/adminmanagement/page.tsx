@@ -116,6 +116,10 @@ export default function AdminManagementPage() {
   const [sessionWarning, setSessionWarning] = useState(false);
   const [sessionCountdown, setSessionCountdown] = useState(60);
 
+  // Admin profile state
+  const [adminUsername, setAdminUsername] = useState<string>("Admin");
+  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+
   // Refs for session timers (useRef avoids stale closure issues)
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
   const warningTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -444,18 +448,19 @@ export default function AdminManagementPage() {
         localStorage.setItem("adminAccessToken", data.access);
         localStorage.setItem("adminRefreshToken", data.refresh);
         localStorage.setItem("adminUser", JSON.stringify({ username: data.username, is_staff: data.is_staff }));
+        setAdminUsername(data.username || "Admin");
         sessionStorage.setItem("adminLastActivity", String(Date.now()));
-        setAuthSuccess("🎉 Login successful! Redirecting...");
+        setAuthSuccess("Login successful");
         setTimeout(() => {
           setIsLoggedIn(true);
           setPassword("");
           setAuthSuccess(null);
         }, 800);
       } else {
-        setAuthError(`❌ ${data.error || "Login failed!"}`);
+        setAuthError(`${data.error || "Login failed!"}`);
       }
     } catch (err) {
-      setAuthError("❌ Connection error to authentication API.");
+      setAuthError("Connection error to authentication API.");
       console.error(err);
     } finally {
       setAuthLoading(false);
@@ -713,11 +718,11 @@ export default function AdminManagementPage() {
 
   // ─── Session Management ────────────────────────────────────────────────────
   const INACTIVITY_LIMIT = 5 * 60 * 1000;       // 5 minutes total
-  const WARNING_BEFORE   = 60 * 1000;            // show warning 1 min before logout
+  const WARNING_BEFORE = 60 * 1000;            // show warning 1 min before logout
 
   const clearAllSessionTimers = () => {
-    if (inactivityTimerRef.current)  clearTimeout(inactivityTimerRef.current);
-    if (warningTimerRef.current)     clearTimeout(warningTimerRef.current);
+    if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+    if (warningTimerRef.current) clearTimeout(warningTimerRef.current);
     if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
   };
 
@@ -730,6 +735,7 @@ export default function AdminManagementPage() {
     setIsLoggedIn(false);
     setSessionWarning(false);
     setSessionCountdown(60);
+    setProfileDropdownOpen(false);
   };
 
   const startWarningCountdown = () => {
@@ -767,8 +773,8 @@ export default function AdminManagementPage() {
 
   // Check auth session on mount — validate JWT token and check stored lastActivity
   useEffect(() => {
-    const token        = localStorage.getItem("adminAccessToken");
-    const adminUser    = localStorage.getItem("adminUser");
+    const token = localStorage.getItem("adminAccessToken");
+    const adminUser = localStorage.getItem("adminUser");
     const lastActivity = localStorage.getItem("adminLastActivity");
 
     if (token && adminUser) {
@@ -779,10 +785,18 @@ export default function AdminManagementPage() {
       } else {
         setIsLoggedIn(true);
         localStorage.setItem("adminLastActivity", String(now));
+        try {
+          const parsed = JSON.parse(adminUser);
+          if (parsed && parsed.username) {
+            setAdminUsername(parsed.username);
+          }
+        } catch (e) {
+          console.error(e);
+        }
       }
     }
     setCheckingAuth(false);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Attach / detach activity listeners when login state changes
@@ -804,7 +818,7 @@ export default function AdminManagementPage() {
       clearAllSessionTimers();
       activityEvents.forEach((ev) => window.removeEventListener(ev, handleActivity));
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoggedIn]);
 
   // Fetch only if logged in
@@ -1188,7 +1202,7 @@ export default function AdminManagementPage() {
         }
         .theme-light {
           --bg-main: linear-gradient(135deg, #eef0f4 0%, #e2e6ed 100%);
-          --bg-header: rgba(255, 255, 255, 0.95);
+          --bg-header: rgba(255, 255, 255, 0.65);
           --bg-header-border: rgba(0, 0, 0, 0.12);
           --text-main: #0f1117;
           --text-muted: #4b5563;
@@ -1216,7 +1230,7 @@ export default function AdminManagementPage() {
           --border-refresh-btn: rgba(0, 0, 0, 0.1);
           --bg-order-items: rgba(0, 0, 0, 0.05);
           --border-order-item-row: rgba(0, 0, 0, 0.07);
-          --bg-auth-card: #ffffff;
+          --bg-auth-card: rgba(255, 255, 255, 0.82);
           --border-auth-card: rgba(0, 0, 0, 0.12);
           --shadow-auth-card: 0 20px 40px rgba(0, 0, 0, 0.15);
           --bg-auth-tab-border: rgba(0, 0, 0, 0.1);
@@ -1259,7 +1273,8 @@ export default function AdminManagementPage() {
           justify-content: space-between;
           align-items: center;
           background: var(--bg-header);
-          backdrop-filter: blur(10px);
+          backdrop-filter: blur(20px);
+          -webkit-backdrop-filter: blur(20px);
           border-bottom: 1px solid var(--bg-header-border);
           padding: 16px 40px;
           position: sticky;
@@ -1900,13 +1915,54 @@ export default function AdminManagementPage() {
           display: flex;
           align-items: center;
           justify-content: center;
-          min-height: calc(80vh - 100px);
+          min-height: calc(85vh - 100px);
           padding: 40px 20px;
+          position: relative;
+          overflow: hidden;
+        }
+        /* Blurred decorative glow blobs for the background */
+        .auth-bg-blob {
+          position: absolute;
+          border-radius: 50%;
+          filter: blur(100px);
+          opacity: 0.16;
+          z-index: 1;
+          pointer-events: none;
+        }
+        .theme-dark .auth-bg-blob {
+          opacity: 0.25;
+        }
+        .auth-bg-blob-1 {
+          width: 320px;
+          height: 320px;
+          background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+          top: 10%;
+          left: 12%;
+          animation: floatBlob1 20s infinite alternate ease-in-out;
+        }
+        .auth-bg-blob-2 {
+          width: 280px;
+          height: 280px;
+          background: linear-gradient(135deg, #f97316 0%, #ec4899 100%);
+          bottom: 12%;
+          right: 12%;
+          animation: floatBlob2 25s infinite alternate ease-in-out;
+        }
+        @keyframes floatBlob1 {
+          0% { transform: translate(0, 0) scale(1); }
+          100% { transform: translate(50px, 30px) scale(1.15); }
+        }
+        @keyframes floatBlob2 {
+          0% { transform: translate(0, 0) scale(1); }
+          100% { transform: translate(-45px, -30px) scale(1.2); }
         }
         .auth-card {
+          position: relative;
+          z-index: 2;
           background: var(--bg-auth-card);
           border: 1px solid var(--border-auth-card);
-          backdrop-filter: blur(20px);
+          backdrop-filter: blur(24px);
+          -webkit-backdrop-filter: blur(24px);
           border-radius: 20px;
           padding: 40px;
           width: 100%;
@@ -2333,6 +2389,125 @@ export default function AdminManagementPage() {
           50% { transform: scale(1.12); }
           100% { transform: scale(1); }
         }
+
+        /* ========== PROFILE DROPDOWN STYLES ========== */
+        .profile-btn {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          background: var(--bg-home-link, rgba(255,255,255,0.08));
+          border: 1px solid var(--border-card, rgba(255,255,255,0.15));
+          color: var(--text-strong, #ffffff);
+          padding: 6px 14px;
+          border-radius: 30px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.25s ease;
+        }
+        .profile-btn:hover {
+          background: var(--bg-home-link-hover, #ffffff);
+          color: var(--text-home-link-hover, #111111);
+          border-color: var(--bg-home-link-hover, #ffffff);
+        }
+        .profile-avatar {
+          width: 26px;
+          height: 26px;
+          background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+          color: #fff;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: -0.3px;
+          flex-shrink: 0;
+        }
+        .profile-name {
+          max-width: 100px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .profile-chevron {
+          font-size: 9px;
+          opacity: 0.6;
+        }
+        .profile-dropdown {
+          position: absolute;
+          top: calc(100% + 8px);
+          right: 0;
+          background: var(--bg-card, rgba(255,255,255,0.95));
+          border: 1px solid var(--border-card, rgba(0,0,0,0.15));
+          border-radius: 12px;
+          width: 190px;
+          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+          backdrop-filter: blur(20px);
+          -webkit-backdrop-filter: blur(20px);
+          padding: 8px;
+          z-index: 110;
+          animation: slideDownDropdown 0.2s ease-out;
+        }
+        .theme-dark .profile-dropdown {
+          background: rgba(30, 30, 36, 0.95);
+          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+        .profile-dropdown-header {
+          padding: 8px 12px;
+          text-align: left;
+        }
+        .profile-dropdown-user {
+          font-weight: 700;
+          font-size: 14px;
+          color: var(--text-strong);
+          margin: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .profile-dropdown-role {
+          font-size: 11px;
+          color: var(--text-muted);
+          margin: 2px 0 0 0;
+        }
+        .profile-dropdown-divider {
+          height: 1px;
+          background: var(--border-card, rgba(0,0,0,0.1));
+          margin: 8px 0;
+        }
+        .profile-dropdown-item {
+          width: 100%;
+          border: none;
+          background: none;
+          padding: 10px 12px;
+          border-radius: 8px;
+          font-size: 14px;
+          font-weight: 600;
+          color: var(--text-strong);
+          text-align: left;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .profile-dropdown-item:hover {
+          background: rgba(255, 255, 255, 0.08);
+        }
+        .theme-light .profile-dropdown-item:hover {
+          background: rgba(0, 0, 0, 0.04);
+        }
+        .profile-dropdown-item.logout {
+          color: #ff4d4d;
+        }
+        .profile-dropdown-item.logout:hover {
+          background: rgba(255, 77, 77, 0.12);
+        }
+        @keyframes slideDownDropdown {
+          from { opacity: 0; transform: translateY(-8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
       `}</style>
 
       {/* ADMIN HEADER */}
@@ -2359,48 +2534,70 @@ export default function AdminManagementPage() {
             </span>
           </Link>
         </div>
-   
 
 
-   <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-  <a
-    href="https://buyfest.vercel.app"
-    target="_blank"
-    rel="noopener noreferrer"
-    className="home-link"
-  >
-    🏠 Visit Store
-  </a>
 
-  <button
-    onClick={toggleTheme}
-    className="theme-toggle-btn"
-    title={theme === "dark" ? "Switch to Light Theme" : "Switch to Dark Theme"}
-  >
-    {theme === "dark" ? "☀️ Light" : "🌙 Dark"}
-  </button>
+        <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+          <a
+            href="https://buyfest.vercel.app"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="home-link"
+          >
+            🏠 Visit Store
+          </a>
 
-  {isLoggedIn && (
-    <button
-      onClick={handleLogout}
-      className="home-link"
-      style={{
-        background: "rgba(244, 67, 54, 0.2)",
-        color: "#ff8a80",
-        border: "1px solid rgba(244, 67, 54, 0.3)",
-        cursor: "pointer",
-      }}
-    >
-      Logout 🚪
-    </button>
-  )}
-</div>
+          <button
+            onClick={toggleTheme}
+            className="theme-toggle-btn"
+            title={theme === "dark" ? "Switch to Light Theme" : "Switch to Dark Theme"}
+          >
+            {theme === "dark" ? "☀️ Light" : "🌙 Dark"}
+          </button>
+
+          {isLoggedIn && (
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={() => setProfileDropdownOpen((prev) => !prev)}
+                className="profile-btn"
+                title="Admin Profile"
+              >
+                <span className="profile-avatar">
+                  {adminUsername ? adminUsername.substring(0, 2).toUpperCase() : "AD"}
+                </span>
+                <span className="profile-name">{adminUsername}</span>
+                <span className="profile-chevron">▼</span>
+              </button>
+
+              {profileDropdownOpen && (
+                <div className="profile-dropdown">
+                  <div className="profile-dropdown-header">
+                    <p className="profile-dropdown-user">{adminUsername}</p>
+                    <p className="profile-dropdown-role">Administrator</p>
+                  </div>
+                  <div className="profile-dropdown-divider" />
+                  <button
+                    onClick={() => {
+                      setProfileDropdownOpen(false);
+                      doLogout();
+                    }}
+                    className="profile-dropdown-item logout"
+                  >
+                    Logout
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </header>
 
       {/* DASHBOARD BODY */}
       <main className="dashboard-body">
         {!isLoggedIn ? (
           <div className="auth-container">
+            <div className="auth-bg-blob auth-bg-blob-1"></div>
+            <div className="auth-bg-blob auth-bg-blob-2"></div>
             <div className="auth-card">
               <div style={{ textAlign: "center", marginBottom: "24px" }}>
                 <Image
