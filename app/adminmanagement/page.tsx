@@ -112,6 +112,15 @@ export default function AdminManagementPage() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSuccess, setAuthSuccess] = useState<string | null>(null);
 
+  // Session warning state
+  const [sessionWarning, setSessionWarning] = useState(false);
+  const [sessionCountdown, setSessionCountdown] = useState(60);
+
+  // Refs for session timers (useRef avoids stale closure issues)
+  const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const warningTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
   // Data lists
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -493,13 +502,7 @@ export default function AdminManagementPage() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("adminAccessToken");
-    localStorage.removeItem("adminRefreshToken");
-    localStorage.removeItem("adminUser");
-    sessionStorage.removeItem("adminLastActivity");
-    setIsLoggedIn(false);
-    setUsername("");
-    setPassword("");
+    doLogout();
   };
 
   // Helper to get auth headers
@@ -708,63 +711,100 @@ export default function AdminManagementPage() {
     }
   };
 
-  // Check auth session on mount — validate JWT token exists and check inactivity limit
+  // ─── Session Management ────────────────────────────────────────────────────
+  const INACTIVITY_LIMIT = 5 * 60 * 1000;       // 5 minutes total
+  const WARNING_BEFORE   = 60 * 1000;            // show warning 1 min before logout
+
+  const clearAllSessionTimers = () => {
+    if (inactivityTimerRef.current)  clearTimeout(inactivityTimerRef.current);
+    if (warningTimerRef.current)     clearTimeout(warningTimerRef.current);
+    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+  };
+
+  const doLogout = () => {
+    clearAllSessionTimers();
+    localStorage.removeItem("adminAccessToken");
+    localStorage.removeItem("adminRefreshToken");
+    localStorage.removeItem("adminUser");
+    localStorage.removeItem("adminLastActivity");
+    setIsLoggedIn(false);
+    setSessionWarning(false);
+    setSessionCountdown(60);
+  };
+
+  const startWarningCountdown = () => {
+    setSessionWarning(true);
+    setSessionCountdown(60);
+    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+    countdownIntervalRef.current = setInterval(() => {
+      setSessionCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(countdownIntervalRef.current!);
+          doLogout();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const resetInactivityTimer = () => {
+    localStorage.setItem("adminLastActivity", String(Date.now()));
+    setSessionWarning(false);
+    setSessionCountdown(60);
+    clearAllSessionTimers();
+
+    // Schedule warning 1 min before auto-logout
+    warningTimerRef.current = setTimeout(() => {
+      startWarningCountdown();
+    }, INACTIVITY_LIMIT - WARNING_BEFORE);
+
+    // Schedule auto-logout after full inactivity limit
+    inactivityTimerRef.current = setTimeout(() => {
+      doLogout();
+    }, INACTIVITY_LIMIT);
+  };
+
+  // Check auth session on mount — validate JWT token and check stored lastActivity
   useEffect(() => {
-    const token = localStorage.getItem("adminAccessToken");
-    const adminUser = localStorage.getItem("adminUser");
-    const lastActivity = sessionStorage.getItem("adminLastActivity");
+    const token        = localStorage.getItem("adminAccessToken");
+    const adminUser    = localStorage.getItem("adminUser");
+    const lastActivity = localStorage.getItem("adminLastActivity");
 
     if (token && adminUser) {
       const now = Date.now();
-      const inactivityLimit = 5 * 60 * 1000; // 5 minutes
-
-      if (lastActivity && (now - Number(lastActivity) > inactivityLimit)) {
-        // Exceeded inactivity limit, logout
-        localStorage.removeItem("adminAccessToken");
-        localStorage.removeItem("adminRefreshToken");
-        localStorage.removeItem("adminUser");
-        sessionStorage.removeItem("adminLastActivity");
-        setIsLoggedIn(false);
+      if (lastActivity && now - Number(lastActivity) > INACTIVITY_LIMIT) {
+        // Token is stale — clean up
+        doLogout();
       } else {
         setIsLoggedIn(true);
-        sessionStorage.setItem("adminLastActivity", String(now));
+        localStorage.setItem("adminLastActivity", String(now));
       }
     }
     setCheckingAuth(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Track user activity for auto logout
+  // Attach / detach activity listeners when login state changes
   useEffect(() => {
-    if (!isLoggedIn) return;
+    if (!isLoggedIn) {
+      clearAllSessionTimers();
+      return;
+    }
 
-    let timeoutId: NodeJS.Timeout;
+    const activityEvents = ["mousemove", "mousedown", "keypress", "scroll", "touchstart", "click"];
+    const handleActivity = () => resetInactivityTimer();
 
-    const resetTimer = () => {
-      sessionStorage.setItem("adminLastActivity", String(Date.now()));
-      if (timeoutId) clearTimeout(timeoutId);
+    activityEvents.forEach((ev) => window.addEventListener(ev, handleActivity, { passive: true }));
 
-      timeoutId = setTimeout(() => {
-        handleLogout();
-        alert("🔒 Session expired due to 5 minutes of inactivity. Please login again.");
-      }, 5 * 60 * 1000); // 5 minutes
-    };
-
-    // Events that indicate user activity
-    const activityEvents = ["mousemove", "mousedown", "keypress", "scroll", "touchstart"];
-
-    activityEvents.forEach((event) => {
-      window.addEventListener(event, resetTimer);
-    });
-
-    // Initialize the timer
-    resetTimer();
+    // Kick off the first timer
+    resetInactivityTimer();
 
     return () => {
-      if (timeoutId) clearTimeout(timeoutId);
-      activityEvents.forEach((event) => {
-        window.removeEventListener(event, resetTimer);
-      });
+      clearAllSessionTimers();
+      activityEvents.forEach((ev) => window.removeEventListener(ev, handleActivity));
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoggedIn]);
 
   // Fetch only if logged in
@@ -1239,6 +1279,80 @@ export default function AdminManagementPage() {
           text-decoration: none;
           display: flex;
           align-items: center;
+          gap: 14px;
+        }
+        .header-logo-divider {
+          width: 1px;
+          height: 28px;
+          background: var(--border-card, rgba(255,255,255,0.15));
+          border-radius: 2px;
+          flex-shrink: 0;
+        }
+        .header-dashboard-label {
+          display: flex;
+          flex-direction: column;
+          line-height: 1.15;
+        }
+        .header-dashboard-label .label-top {
+          font-size: 10px;
+          font-weight: 600;
+          letter-spacing: 2px;
+          text-transform: uppercase;
+          color: var(--text-muted, #8b9ab2);
+        }
+        .header-dashboard-label .label-main {
+          font-size: 16px;
+          font-weight: 800;
+          letter-spacing: -0.3px;
+          background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+        }
+        @media (max-width: 520px) {
+          .header-logo-divider,
+          .header-dashboard-label {
+            display: none;
+          }
+        }
+        .header-logo-img {
+          height: 42px;
+          width: auto;
+          max-width: 180px;
+          object-fit: contain;
+          display: block;
+          transition: filter 0.3s ease;
+        }
+        .login-logo-img {
+          height: 72px;
+          width: auto;
+          max-width: 220px;
+          object-fit: contain;
+          display: block;
+          margin: 0 auto 20px auto;
+          transition: filter 0.3s ease;
+        }
+        /* Dark theme — logo গুলোকে উজ্জ্বল + drop-shadow দিয়ে স্পষ্ট করা */
+        .theme-dark .header-logo-img {
+          filter: brightness(0) invert(1) drop-shadow(0 0 8px rgba(255,255,255,0.15));
+        }
+        .theme-dark .login-logo-img {
+          filter: brightness(0) invert(1) drop-shadow(0 0 12px rgba(255,255,255,0.12));
+        }
+        /* Light theme — filter reset */
+        .theme-light .header-logo-img,
+        .theme-light .login-logo-img {
+          filter: none;
+        }
+        @media (max-width: 640px) {
+          .header-logo-img {
+            height: 32px;
+            max-width: 140px;
+          }
+          .login-logo-img {
+            height: 56px;
+            max-width: 170px;
+          }
         }
         .admin-title span.badge {
           background: var(--primary, #e8320a);
@@ -2114,41 +2228,136 @@ export default function AdminManagementPage() {
 }
 
 
+        /* ========== SESSION WARNING MODAL ========== */
+        .session-warning-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.75);
+          backdrop-filter: blur(8px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 9999;
+          animation: fadeInOverlay 0.25s ease-out;
+        }
+        .session-warning-card {
+          background: var(--bg-auth-card, #2a2b36);
+          border: 1px solid var(--border-card, rgba(255,255,255,0.15));
+          border-radius: 16px;
+          padding: 30px;
+          width: 90%;
+          max-width: 440px;
+          box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+          text-align: center;
+          color: var(--text-strong, #ffffff);
+          animation: scaleInCard 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .session-warning-icon {
+          font-size: 44px;
+          margin-bottom: 16px;
+          animation: warningPulse 1.5s infinite;
+          display: inline-block;
+        }
+        .session-warning-title {
+          font-size: 22px;
+          font-weight: 800;
+          margin-bottom: 10px;
+          letter-spacing: -0.5px;
+        }
+        .session-warning-desc {
+          font-size: 14px;
+          color: var(--text-muted, #a0a0b0);
+          line-height: 1.6;
+          margin-bottom: 24px;
+        }
+        .session-warning-countdown {
+          font-size: 36px;
+          font-weight: 800;
+          color: #ff4d4d;
+          margin: 16px 0;
+          font-variant-numeric: tabular-nums;
+        }
+        .session-warning-buttons {
+          display: flex;
+          gap: 12px;
+        }
+        .session-warning-btn-stay {
+          flex: 1;
+          background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+          color: #fff;
+          border: none;
+          padding: 12px 18px;
+          border-radius: 10px;
+          font-weight: 600;
+          font-size: 14px;
+          cursor: pointer;
+          transition: opacity 0.2s, transform 0.1s;
+        }
+        .session-warning-btn-stay:hover {
+          opacity: 0.95;
+        }
+        .session-warning-btn-stay:active {
+          transform: scale(0.98);
+        }
+        .session-warning-btn-logout {
+          flex: 1;
+          background: rgba(255, 77, 77, 0.12);
+          color: #ff4d4d;
+          border: 1px solid rgba(255, 77, 77, 0.25);
+          padding: 12px 18px;
+          border-radius: 10px;
+          font-weight: 600;
+          font-size: 14px;
+          cursor: pointer;
+          transition: background-color 0.2s, transform 0.1s;
+        }
+        .session-warning-btn-logout:hover {
+          background: rgba(255, 77, 77, 0.22);
+        }
+        .session-warning-btn-logout:active {
+          transform: scale(0.98);
+        }
+        @keyframes fadeInOverlay {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes scaleInCard {
+          from { opacity: 0; transform: scale(0.92); }
+          to { opacity: 1; transform: scale(1); }
+        }
+        @keyframes warningPulse {
+          0% { transform: scale(1); }
+          50% { transform: scale(1.12); }
+          100% { transform: scale(1); }
+        }
       `}</style>
 
       {/* ADMIN HEADER */}
       <header className="admin-header">
         <div className="admin-title">
-          
-
-
           <Link
-      href=""
-      className="logo"
-      style={{
-        display: "flex",
-        alignItems: "center",
-        textDecoration: "none",
-      }}
-    >
-      <span className="logo-text">
-        <span className="logo-buy">BUY</span>
-        <span className="logo-fest">FEST</span>
-        <span
-          style={{
-            fontSize: "22px",
-            fontWeight: "600",
-            color: "var(--text-muted)",
-            marginLeft: "4px",
-          }}
-        >
-          Dashboard
-        </span>
-      </span>
-    </Link>
-
-
-
+            href=""
+            className="logo"
+            style={{ display: "flex", alignItems: "center", textDecoration: "none" }}
+          >
+            <Image
+              src="/official_logo_3.png"
+              alt="Official Logo"
+              width={180}
+              height={42}
+              className="header-logo-img"
+              priority
+              style={{ height: "42px", width: "auto", maxWidth: "180px", objectFit: "contain" }}
+            />
+            <span className="header-logo-divider" aria-hidden="true" />
+            <span className="header-dashboard-label">
+              <span className="label-top">Admin</span>
+              <span className="label-main">Dashboard</span>
+            </span>
+          </Link>
         </div>
    
 
@@ -2193,7 +2402,18 @@ export default function AdminManagementPage() {
         {!isLoggedIn ? (
           <div className="auth-container">
             <div className="auth-card">
-              <h2 style={{ fontSize: "24px", fontWeight: "700", color: "var(--text-strong)", textAlign: "center", marginBottom: "8px" }}>
+              <div style={{ textAlign: "center", marginBottom: "24px" }}>
+                <Image
+                  src="/official_logo_3.png"
+                  alt="Official Logo"
+                  width={220}
+                  height={72}
+                  className="login-logo-img"
+                  priority
+                  style={{ height: "72px", width: "auto", maxWidth: "220px", objectFit: "contain", margin: "0 auto" }}
+                />
+              </div>
+              <h2 style={{ fontSize: "20px", fontWeight: "700", color: "var(--text-strong)", textAlign: "center", marginBottom: "6px" }}>
                 Dashboard Sign In
               </h2>
               <p className="auth-description" style={{ textAlign: "center", marginBottom: "24px" }}>
@@ -4135,6 +4355,26 @@ export default function AdminManagementPage() {
           </>
         )}
       </main>
+      {sessionWarning && (
+        <div className="session-warning-overlay">
+          <div className="session-warning-card">
+            <span className="session-warning-icon">⏳</span>
+            <h3 className="session-warning-title">Session Expiring Soon</h3>
+            <p className="session-warning-desc">
+              You have been inactive for a while. For security reasons, you will be automatically logged out in:
+            </p>
+            <div className="session-warning-countdown">{sessionCountdown}s</div>
+            <div className="session-warning-buttons">
+              <button className="session-warning-btn-stay" onClick={resetInactivityTimer}>
+                Stay Logged In
+              </button>
+              <button className="session-warning-btn-logout" onClick={doLogout}>
+                Logout Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
