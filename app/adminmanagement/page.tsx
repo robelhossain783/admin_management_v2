@@ -950,7 +950,7 @@ export default function AdminManagementPage() {
     setLoadingFeedbacks(true);
     setFeedbackError(null);
     try {
-      const res = await fetch(`http://127.0.0.1:8000/api/feedback/customer-feedback/list/`);
+      const res = await fetch(`${BASE_URL}/api/feedback/customer-feedback/list/`);
       const data = await res.json();
       if (res.ok) {
         if (Array.isArray(data)) {
