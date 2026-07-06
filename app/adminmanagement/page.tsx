@@ -83,10 +83,20 @@ interface NotificationBanner {
   created_at: string;
 }
 
+interface CustomerFeedback {
+  id: number;
+  name: string;
+  email: string;
+  phone: string;
+  message: string;
+  rating: number;
+  created_at: string;
+}
+
 
 
 export default function AdminManagementPage() {
-  const [activeTab, setActiveTab] = useState<"dashboard" | "orders" | "products" | "categories" | "banners" | "notification_banners" | "admins">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "orders" | "products" | "categories" | "banners" | "notification_banners" | "admins" | "customer_feedback">("dashboard");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
   // Load theme from localStorage on mount
@@ -883,6 +893,11 @@ export default function AdminManagementPage() {
     text: string;
   } | null>(null);
 
+  // ----------------------------------
+  // Customer Feedback state
+  const [customerFeedbacks, setCustomerFeedbacks] = useState<CustomerFeedback[]>([]);
+  const [loadingFeedbacks, setLoadingFeedbacks] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
 
 
 
@@ -930,6 +945,33 @@ export default function AdminManagementPage() {
     }
   };
 
+  // ----------------------------------
+  const fetchCustomerFeedbacks = async () => {
+    setLoadingFeedbacks(true);
+    setFeedbackError(null);
+    try {
+      const res = await fetch(`${BASE_URL}/api/feedback/customer-feedback/list/`);
+      const data = await res.json();
+      if (res.ok) {
+        if (Array.isArray(data)) {
+          setCustomerFeedbacks(data);
+        } else if (data.data && Array.isArray(data.data)) {
+          setCustomerFeedbacks(data.data);
+        } else if (data.results && Array.isArray(data.results)) {
+          setCustomerFeedbacks(data.results);
+        } else {
+          setCustomerFeedbacks([]);
+        }
+      } else {
+        setFeedbackError(data.detail || "Failed to load feedback");
+      }
+    } catch (err) {
+      console.error(err);
+      setFeedbackError("Network error while loading feedback");
+    } finally {
+      setLoadingFeedbacks(false);
+    }
+  };
 
 
 
@@ -1410,6 +1452,29 @@ export default function AdminManagementPage() {
         .theme-toggle-btn:hover {
           background: var(--bg-toggle-hover);
           transform: translateY(-1px);
+        }
+        .feedback-btn {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          background: var(--bg-toggle-btn);
+          color: var(--text-toggle-btn);
+          border: 1px solid var(--border-toggle-btn);
+          padding: 8px 14px;
+          border-radius: 30px;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.25s ease;
+        }
+        .feedback-btn:hover {
+          background: var(--bg-toggle-hover);
+          transform: translateY(-1px);
+        }
+        .feedback-btn.active {
+          background: var(--primary, #e8320a);
+          color: #fff;
+          border-color: var(--primary, #e8320a);
         }
         .dashboard-body {
           max-width: 1400px;
@@ -2555,6 +2620,14 @@ export default function AdminManagementPage() {
             {theme === "dark" ? "☀️ Light" : "🌙 Dark"}
           </button>
 
+          <button
+            onClick={() => { setActiveTab("customer_feedback"); fetchCustomerFeedbacks(); }}
+            className={`feedback-btn ${activeTab === "customer_feedback" ? "active" : ""}`}
+            title="Customer Feedback"
+          >
+            💬 Feedback
+          </button>
+
           {isLoggedIn && (
             <div style={{ position: "relative" }}>
               <button
@@ -2746,6 +2819,13 @@ export default function AdminManagementPage() {
                 className={`tab-btn ${activeTab === "admins" ? "active" : ""}`}
               >
                 Manage Admins
+              </button>
+
+              <button
+                onClick={() => { setActiveTab("customer_feedback"); fetchCustomerFeedbacks(); }}
+                className={`tab-btn ${activeTab === "customer_feedback" ? "active" : ""}`}
+              >
+                💬 Customer Feedback ({customerFeedbacks.length})
               </button>
             </section>
 
@@ -4549,6 +4629,82 @@ export default function AdminManagementPage() {
                 </div>
               </div>
             )}
+
+            {/* 7. CUSTOMER FEEDBACK TAB */}
+            {activeTab === "customer_feedback" && (
+              <div>
+                <div className="data-list-header">
+                  <h3 style={{ fontSize: "18px", fontWeight: "700", color: "var(--text-strong)" }}>Customer Feedback</h3>
+                  <button onClick={fetchCustomerFeedbacks} className="refresh-btn">
+                    🔄 Refresh ({loadingFeedbacks ? "Loading..." : `${customerFeedbacks.length} entries`})
+                  </button>
+                </div>
+
+                {loadingFeedbacks && customerFeedbacks.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "60px 0" }}>
+                    <div className="spinner" style={{ margin: "0 auto 16px" }}></div>
+                    <p style={{ color: "var(--text-muted)" }}>Loading customer feedback...</p>
+                  </div>
+                ) : feedbackError ? (
+                  <div className="msg-box error">{feedbackError}</div>
+                ) : customerFeedbacks.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "60px 0", background: "var(--bg-order-table-container)", borderRadius: "12px", border: "1px dashed var(--border-table)" }}>
+                    <span style={{ fontSize: "36px", display: "block", marginBottom: "12px" }}>💬</span>
+                    <h4 style={{ color: "var(--text-strong)", marginBottom: "4px" }}>No Feedback Yet</h4>
+                    <p style={{ color: "var(--text-muted)", fontSize: "13px" }}>Customer feedback submitted through the store will appear here.</p>
+                  </div>
+                ) : (
+                  <div className="order-table-container">
+                    <table className="order-table">
+                      <thead>
+                        <tr>
+                          <th>ID</th>
+                          <th>Name</th>
+                          <th>Email / Phone</th>
+                          <th>Message</th>
+                          <th>Rating</th>
+                          <th>Date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {customerFeedbacks.map((fb) => (
+                          <tr key={fb.id}>
+                            <td><strong>#{fb.id}</strong></td>
+                            <td>
+                              <span style={{ fontWeight: "600", color: "var(--text-strong)" }}>{fb.name}</span>
+                            </td>
+                            <td>
+                              <div style={{ fontSize: "12px" }}>{fb.email}</div>
+                              <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>{fb.phone}</div>
+                            </td>
+                            <td style={{ maxWidth: "300px", whiteSpace: "normal" }}>
+                              <span style={{ fontSize: "13px", color: "var(--text-main)" }}>{fb.message}</span>
+                            </td>
+                            <td>
+                              <span style={{
+                                display: "inline-block",
+                                padding: "2px 10px",
+                                borderRadius: "4px",
+                                fontSize: "13px",
+                                fontWeight: "700",
+                                background: fb.rating >= 4 ? "rgba(34,197,94,0.2)" : fb.rating >= 3 ? "rgba(234,179,8,0.2)" : "rgba(239,68,68,0.2)",
+                                color: fb.rating >= 4 ? "#22c55e" : fb.rating >= 3 ? "#eab308" : "#ef4444",
+                              }}>
+                                {fb.rating}/5
+                              </span>
+                            </td>
+                            <td style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                              {new Date(fb.created_at).toLocaleDateString("en-BD", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
           </>
         )}
       </main>
