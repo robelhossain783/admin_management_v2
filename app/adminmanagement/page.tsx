@@ -93,10 +93,17 @@ interface CustomerFeedback {
   created_at: string;
 }
 
+interface District {
+  id: number;
+  name: string;
+  delivery_charge: number;
+  created_at?: string;
+}
+
 
 
 export default function AdminManagementPage() {
-  const [activeTab, setActiveTab] = useState<"dashboard" | "orders" | "products" | "categories" | "banners" | "notification_banners" | "admins" | "customer_feedback">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "orders" | "products" | "categories" | "banners" | "notification_banners" | "admins" | "customer_feedback" | "districts">("dashboard");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
   // Load theme from localStorage on mount
@@ -203,6 +210,16 @@ export default function AdminManagementPage() {
   const [bannerImageFile, setBannerImageFile] = useState<File | null>(null);
   const [bannerImagePreview, setBannerImagePreview] = useState<string | null>(null);
 
+  // District Management States
+  const [districts, setDistricts] = useState<District[]>([]);
+  const [loadingDistricts, setLoadingDistricts] = useState(false);
+  const [districtName, setDistrictName] = useState("");
+  const [districtCharge, setDistrictCharge] = useState("");
+  const [editingDistrictId, setEditingDistrictId] = useState<number | null>(null);
+  const [districtSubmitLoading, setDistrictSubmitLoading] = useState(false);
+  const [districtFormMsg, setDistrictFormMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [districtSearchQuery, setDistrictSearchQuery] = useState("");
+
   // Fetch functions
   const fetchCategories = async () => {
     setLoadingCategories(true);
@@ -265,6 +282,21 @@ export default function AdminManagementPage() {
       console.error("Failed to fetch banners:", err);
     } finally {
       setLoadingBanners(false);
+    }
+  };
+
+  const fetchDistricts = async () => {
+    setLoadingDistricts(true);
+    try {
+      const res = await fetch(`${BASE_URL}/api/district/list/`);
+      if (res.ok) {
+        const data = await res.json();
+        setDistricts(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch districts:", err);
+    } finally {
+      setLoadingDistricts(false);
     }
   };
 
@@ -726,6 +758,78 @@ export default function AdminManagementPage() {
     }
   };
 
+  const handleCreateOrUpdateDistrict = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDistrictFormMsg(null);
+
+    if (!districtName || !districtCharge) {
+      setDistrictFormMsg({ type: "error", text: "District Name and Delivery Charge are required!" });
+      return;
+    }
+
+    setDistrictSubmitLoading(true);
+    const url = editingDistrictId
+      ? `${BASE_URL}/api/district/${editingDistrictId}/`
+      : `${BASE_URL}/api/district/list/`;
+
+    const method = editingDistrictId ? "PUT" : "POST";
+    const headers = getAuthHeaders();
+
+    try {
+      const res = await fetch(url, {
+        method,
+        headers,
+        body: JSON.stringify({
+          name: districtName,
+          delivery_charge: Number(districtCharge),
+        }),
+      });
+
+      const responseData = await res.json();
+      if (res.ok) {
+        setDistrictFormMsg({
+          type: "success",
+          text: editingDistrictId
+            ? "🎉 District updated successfully!"
+            : "🎉 District created successfully!",
+        });
+        setDistrictName("");
+        setDistrictCharge("");
+        setEditingDistrictId(null);
+        fetchDistricts();
+      } else {
+        const errorText = responseData.error || responseData.detail || JSON.stringify(responseData);
+        setDistrictFormMsg({ type: "error", text: `❌ Failed to save district: ${errorText}` });
+      }
+    } catch (err) {
+      setDistrictFormMsg({ type: "error", text: "❌ Connection error to backend API." });
+      console.error(err);
+    } finally {
+      setDistrictSubmitLoading(false);
+    }
+  };
+
+  const handleDeleteDistrict = async (districtId: number) => {
+    if (!confirm("Are you sure you want to delete this district?")) return;
+
+    try {
+      const res = await fetch(`${BASE_URL}/api/district/${districtId}/`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+
+      if (res.ok) {
+        setDistricts((prev) => prev.filter((d) => d.id !== districtId));
+      } else {
+        const data = await res.json();
+        alert(`❌ Failed to delete district: ${data.error || "Unknown error"}`);
+      }
+    } catch (err) {
+      console.error("Error deleting district:", err);
+      alert("❌ Connection error while deleting district");
+    }
+  };
+
   // ─── Session Management ────────────────────────────────────────────────────
   const INACTIVITY_LIMIT = 5 * 60 * 1000;       // 5 minutes total
   const WARNING_BEFORE = 60 * 1000;            // show warning 1 min before logout
@@ -839,6 +943,7 @@ export default function AdminManagementPage() {
       fetchOrders();
       fetchBanners();
       fetchNotificationBanners();
+      fetchDistricts();
     }
   }, [isLoggedIn]);
 
@@ -2758,6 +2863,11 @@ export default function AdminManagementPage() {
                 <span className="stat-value">{notificationBanners.length}</span>
                 <span className="stat-detail">{notificationBanners.filter(b => b.is_active).length} active notifications</span>
               </div>
+              <div className="stat-card">
+                <span className="stat-label">Districts</span>
+                <span className="stat-value">{districts.length}</span>
+                <span className="stat-detail">Configured delivery locations</span>
+              </div>
             </section>
 
             {/* TABS NAVIGATION */}
@@ -2826,6 +2936,20 @@ export default function AdminManagementPage() {
                 className={`tab-btn ${activeTab === "customer_feedback" ? "active" : ""}`}
               >
                 💬 Customer Feedback ({customerFeedbacks.length})
+              </button>
+
+              <button
+                onClick={() => {
+                  setActiveTab("districts");
+                  setDistrictFormMsg(null);
+                  setDistrictName("");
+                  setDistrictCharge("");
+                  setEditingDistrictId(null);
+                  fetchDistricts();
+                }}
+                className={`tab-btn ${activeTab === "districts" ? "active" : ""}`}
+              >
+                Manage Delivery Area ({districts.length})
               </button>
             </section>
 
@@ -4698,6 +4822,170 @@ export default function AdminManagementPage() {
                             </td>
                           </tr>
                         ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 8. DISTRICT MANAGEMENT TAB */}
+            {activeTab === "districts" && (
+              <div>
+                {/* Create / Update Form Panel */}
+                <div className="form-panel">
+                  <h3 className="form-title">
+                    <span>{editingDistrictId ? "✏️ Edit District" : "📍 Add New District"}</span>
+                    {editingDistrictId && (
+                      <button
+                        onClick={() => {
+                          setEditingDistrictId(null);
+                          setDistrictName("");
+                          setDistrictCharge("");
+                          setDistrictFormMsg(null);
+                        }}
+                        className="refresh-btn"
+                        style={{ fontSize: "11px", padding: "4px 8px" }}
+                      >
+                        Cancel Edit
+                      </button>
+                    )}
+                  </h3>
+
+                  {districtFormMsg && (
+                    <div className={`msg-box ${districtFormMsg.type}`}>
+                      {districtFormMsg.text}
+                    </div>
+                  )}
+
+                  <form onSubmit={handleCreateOrUpdateDistrict} className="form-grid">
+                    <div className="form-group">
+                      <label className="form-label">District Name *</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={districtName}
+                        onChange={(e) => setDistrictName(e.target.value)}
+                        placeholder="e.g. Dhaka, Chittagong, Sylhet"
+                        required
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">Delivery Charge (৳) *</label>
+                      <input
+                        type="number"
+                        min="0"
+                        className="form-input"
+                        value={districtCharge}
+                        onChange={(e) => setDistrictCharge(e.target.value)}
+                        placeholder="e.g. 60 or 120"
+                        required
+                      />
+                    </div>
+
+                    <div className="form-group full-width">
+                      <button type="submit" className="form-button" disabled={districtSubmitLoading}>
+                        {districtSubmitLoading ? (
+                          <>
+                            <div className="spinner" style={{ display: "inline-block", width: "16px", height: "16px", marginRight: "8px" }}></div>
+                            Saving...
+                          </>
+                        ) : (
+                          editingDistrictId ? "Update District" : "Create District"
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+
+                {/* District List Header */}
+                <div className="data-list-header">
+                  <h3 style={{ fontSize: "18px", fontWeight: "700", color: "var(--text-strong)" }}>
+                    All Configured Districts
+                  </h3>
+                  <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                    <input
+                      type="text"
+                      className="form-input"
+                      style={{ padding: "6px 12px", fontSize: "13px", width: "200px" }}
+                      placeholder="Search district..."
+                      value={districtSearchQuery}
+                      onChange={(e) => setDistrictSearchQuery(e.target.value)}
+                    />
+                    <button onClick={fetchDistricts} className="refresh-btn">
+                      🔄 Refresh ({loadingDistricts ? "Loading..." : `${districts.length} entries`})
+                    </button>
+                  </div>
+                </div>
+
+                {/* District List Content */}
+                {loadingDistricts && districts.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "60px 0" }}>
+                    <div className="spinner" style={{ margin: "0 auto 16px" }}></div>
+                    <p style={{ color: "var(--text-muted)" }}>Loading districts...</p>
+                  </div>
+                ) : districts.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "60px 0", background: "var(--bg-order-table-container)", borderRadius: "12px", border: "1px dashed var(--border-table)" }}>
+                    <span style={{ fontSize: "36px", display: "block", marginBottom: "12px" }}>📍</span>
+                    <h4 style={{ color: "var(--text-strong)", marginBottom: "4px" }}>No Districts Configured</h4>
+                    <p style={{ color: "var(--text-muted)", fontSize: "13px" }}>Districts added here will be available for customer shipping selection.</p>
+                  </div>
+                ) : (
+                  <div className="order-table-container">
+                    <table className="order-table">
+                      <thead>
+                        <tr>
+                          <th>ID</th>
+                          <th>District Name</th>
+                          <th>Delivery Charge</th>
+                          <th>Created At</th>
+                          <th style={{ textAlign: "right" }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {districts
+                          .filter((d) => d.name.toLowerCase().includes(districtSearchQuery.toLowerCase()))
+                          .map((d) => (
+                            <tr key={d.id}>
+                              <td><strong>#{d.id}</strong></td>
+                              <td>
+                                <span style={{ fontWeight: "600", color: "var(--text-strong)" }}>{d.name}</span>
+                              </td>
+                              <td>
+                                <span style={{ fontWeight: "700", color: "var(--primary, #e8320a)" }}>৳{d.delivery_charge}</span>
+                              </td>
+                              <td style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                                {d.created_at
+                                  ? new Date(d.created_at).toLocaleDateString("en-BD", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+                                  : "N/A"}
+                              </td>
+                              <td style={{ textAlign: "right" }}>
+                                <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+                                  <button
+                                    onClick={() => {
+                                      setEditingDistrictId(d.id);
+                                      setDistrictName(d.name);
+                                      setDistrictCharge(String(d.delivery_charge));
+                                      setDistrictFormMsg(null);
+                                      window.scrollTo({ top: 300, behavior: "smooth" });
+                                    }}
+                                    className="refresh-btn"
+                                    style={{ background: "rgba(59,130,246,0.15)", color: "#3b82f6", borderColor: "rgba(59,130,246,0.25)" }}
+                                  >
+                                    ✏️ Edit
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteDistrict(d.id)}
+                                    className="refresh-btn"
+                                    style={{ background: "rgba(239,68,68,0.15)", color: "#ef4444", borderColor: "rgba(239,68,68,0.25)" }}
+                                  >
+                                    🗑 Delete
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
                       </tbody>
                     </table>
                   </div>
